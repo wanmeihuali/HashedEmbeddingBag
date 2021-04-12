@@ -3,6 +3,8 @@
 This is a sub-project for [dlrm_ssm](https://github.com/yanzhoupan/dlrm_ssm). 
 It applies the idea from the paper 
 [Compressing Neural Netwkrs with the Hashing Trick](https://arxiv.org/pdf/1504.04788.pdf) to the Embedding Bags in Pytorch.
+The HashedEmbeddingBag reduces the graphic memory usage of EmbeddingBag, and only affects the accuracy slightly.
+We uses it as a comparsion to other embedding compression method in our paper [Semantically Constrained Memory Allocation (SCMA) for Embedding in Efficient Recommendation Systems](https://arxiv.org/pdf/2103.06124.pdf).
 
 ## How to install
 
