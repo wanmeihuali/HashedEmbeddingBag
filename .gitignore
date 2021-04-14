@@ -3,3 +3,4 @@
 /hashed_embedding_bag.egg-info/
 /cmake-build-debug/
 /.idea/
+/libtorch/

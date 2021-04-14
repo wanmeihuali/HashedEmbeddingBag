@@ -32,7 +32,6 @@ class HashedEmbeddingBagFunction(torch.autograd.Function):
             mode_enum = 0
         elif mode == 'mean':
             mode_enum = 1
-            raise ValueError("mean mode not supported")
         elif mode == 'max':
             mode_enum = 2
             raise ValueError("max mode not supported")

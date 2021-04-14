@@ -1,4 +1,10 @@
+#ifndef CPP_ONLY
 #include <torch/extension.h>
+#else
+#include <torch/torch.h>
+#endif
+
+#include "hashed_embedding_bag_kernel.cuh"
 
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/core/TensorAccessor.h>
@@ -154,6 +160,8 @@ __global__ void compute_grad_weight_bags(
         torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> offset2bag,
         int64_t embedding_dim,
         int64_t numel,
+        int mode_mean,
+        torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> bag_size,
         torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> partial_segment_offset,
         int64_t num_of_partial_segments,
         torch::PackedTensorAccessor32<scalar_t, 1, torch::RestrictPtrTraits> grad_weight_per_partial
@@ -171,7 +179,11 @@ __global__ void compute_grad_weight_bags(
         const int orig_cat_idx = orig_hash_idx / embedding_dim; // in range [0, |indices|)
         const int feature_idx = orig_hash_idx % embedding_dim;     // in range [0, embedding_dim)
         const int bag_idx = offset2bag[orig_cat_idx];
-        grad_acc += output_grad[bag_idx][feature_idx];
+        scalar_t gradient = output_grad[bag_idx][feature_idx];
+        if (mode_mean) {
+            gradient /= bag_size[bag_idx];
+        }
+        grad_acc += gradient;
     }
     grad_weight_per_partial[partial_id] = grad_acc;
 
@@ -253,14 +265,16 @@ hashed_embedding_bag_cuda_forward(
             output, offset2bag, bag_size, max_indices, hashed_index);
 }
 
-torch::Tensor hashed_embedding_bag_sum_backward(
+torch::Tensor hashed_embedding_bag_sum_avg_backward(
         const torch::Tensor &output_grad,
         const torch::Tensor &indices,
         const torch::Tensor &offsets,
         const torch::Tensor &offset2bag,
         const torch::Tensor &hash_index,
+        const torch::Tensor &bag_size,
 
         int64_t num_weights,
+        bool mode_mean,
         int64_t embedding_dim) {
     int64_t numIndices = indices.size(0);
     int64_t numBags = offsets.size(0);
@@ -275,7 +289,7 @@ torch::Tensor hashed_embedding_bag_sum_backward(
     int64_t numel = flattened_hash_index.size(0);
 
     // hash_index is a |indices| x embedding_dim Tensor, contains the index in hashed weight for each input indices x embedding dim.
-    // the hash_index is flattened, and then we want to sort it, we use orig_hash_idx_idx to keep track of its orignal indices.
+    // the hash_index is flattened, and then we want to sort it, we use orig_hash_idx_idx to keep track of its original indices.
     auto sorted_hash_idx = at::empty_like(flattened_hash_index, LEGACY_CONTIGUOUS_MEMORY_FORMAT);
     auto orig_hash_idx_idx = at::empty_like(flattened_hash_index, LEGACY_CONTIGUOUS_MEMORY_FORMAT);
     using device_ptr = thrust::device_ptr<int64_t>;
@@ -362,6 +376,8 @@ torch::Tensor hashed_embedding_bag_sum_backward(
                 offset2bag.packed_accessor32<int64_t, 1, torch::RestrictPtrTraits>(),
                 embedding_dim,
                 numel,
+                mode_mean,
+                bag_size.packed_accessor32<int64_t, 1, torch::RestrictPtrTraits>(),
                 partial_segment_offset.packed_accessor32<int64_t, 1, torch::RestrictPtrTraits>(),
                 num_of_partial_segments,
                 grad_weight_per_segment.packed_accessor32<scalar_t, 1, torch::RestrictPtrTraits>()
@@ -396,15 +412,18 @@ torch::Tensor hashed_embedding_bag_cuda_backward(
     torch::Tensor grad = grad_.contiguous();
     switch (mode) {
         case MODE_SUM:
-            return hashed_embedding_bag_sum_backward(
+
+        case MODE_MEAN:
+            return hashed_embedding_bag_sum_avg_backward(
                     grad_,
                     indices,
                     offsets,
                     offset2bag,
                     hashed_index,
+                    bag_size_,
                     num_weights,
+                    mode == MODE_MEAN,
                     embedding_dim);
-        case MODE_MEAN:
         case MODE_MAX:
             //return hashed_embedding_bag_cuda_max()
         default:
@@ -467,9 +486,11 @@ torch::Tensor hashed_embedding_bag_backward(
     );
 }
 
+#ifndef CPP_ONLY
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m
 ) {
 m.def("forward", &hashed_embedding_bag_forward, "hash embedding forward (CUDA)");
 m.def("backward", &hashed_embedding_bag_backward, "hash embedding backward (CUDA)");
 m.def("hash", &hash_func, "hash function");
 }
+#endif
