@@ -96,9 +96,7 @@ def test_hashedEmbeddingBag():
 
     assert ((weight_grad - expected_weight_grad).sum().item() < 0.1)
 
-def test_HashedEmbeddingBagAPI():
-    mode = 0
-
+def test_HashedEmbeddingBagAPI_mean():
     bag_num = 18
 
     num_categories = 10
@@ -110,6 +108,66 @@ def test_HashedEmbeddingBagAPI():
     hashed_weights = torch.rand(hashed_weight_size)
 
     embedding = HashedEmbeddingBag.HashedEmbeddingBag(num_categories, num_feature, compression=0.1, mode="mean")
+    embedding = embedding.cuda()
+
+    bag_size = torch.randint(low=0, high=3, size=(bag_num,))
+    indices_num = bag_size.sum().item()
+
+    indices = torch.randint(low=0, high=num_categories - 1, size=(indices_num,))
+    offsets = torch.cat([torch.zeros(1, dtype=torch.long), bag_size.cumsum(dim=0)[:-1]])
+
+    # move all inputs to GPU
+    device = torch.cuda.current_device()
+    indices = indices.to(device)
+    offsets = offsets.to(device)
+
+    x = embedding.forward(indices, offsets)
+    loss = x.sum()
+    loss.backward()
+
+
+def test_HashedEmbeddingBagAPI_max():
+    bag_num = 18
+
+    num_categories = 10
+    num_feature = 5
+
+    hashed_weight_size = 200
+
+    # generate random weight and input for testing
+    hashed_weights = torch.rand(hashed_weight_size)
+
+    embedding = HashedEmbeddingBag.HashedEmbeddingBag(num_categories, num_feature, compression=0.1, mode="max")
+    embedding = embedding.cuda()
+
+    bag_size = torch.randint(low=0, high=3, size=(bag_num,))
+    indices_num = bag_size.sum().item()
+
+    indices = torch.randint(low=0, high=num_categories - 1, size=(indices_num,))
+    offsets = torch.cat([torch.zeros(1, dtype=torch.long), bag_size.cumsum(dim=0)[:-1]])
+
+    # move all inputs to GPU
+    device = torch.cuda.current_device()
+    indices = indices.to(device)
+    offsets = offsets.to(device)
+
+    x = embedding.forward(indices, offsets)
+    loss = x.sum()
+    loss.backward()
+
+
+def test_HashedEmbeddingBagAPI_sum():
+    bag_num = 18
+
+    num_categories = 10
+    num_feature = 5
+
+    hashed_weight_size = 200
+
+    # generate random weight and input for testing
+    hashed_weights = torch.rand(hashed_weight_size)
+
+    embedding = HashedEmbeddingBag.HashedEmbeddingBag(num_categories, num_feature, compression=0.1, mode="sum")
     embedding = embedding.cuda()
 
     bag_size = torch.randint(low=0, high=3, size=(bag_num,))

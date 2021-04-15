@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(HashedEmbeddingBag)
 
 add_compile_definitions(CPP_ONLY)
+add_compile_definitions(CUDA_HAS_FP16=1)
+add_compile_definitions(__CUDA_NO_HALF_OPERATORS__)
+add_compile_definitions(__CUDA_NO_HALF2_OPERATORS__)
+add_compile_definitions(__CUDA_NO_HALF_CONVERSIONS__)
+set(USE_CUDA ON)
+set(CMAKE_VERBOSE_MAKEFILE ON)
+
 find_package(PythonLibs REQUIRED)
 find_package(Torch REQUIRED)
 find_package(GTest REQUIRED)
@@ -9,8 +16,9 @@ find_package(GTest REQUIRED)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 
 include_directories(${PYTHON_INCLUDE_DIRS})
+include_directories(${TORCH_INCLUDE_DIRS})
 
-cuda_add_library(hashed_embedding_bag_kernel hashed_embedding_bag_kernel.cu hashed_embedding_bag_kernel.cuh)
+torch_cuda_based_add_library(hashed_embedding_bag_kernel hashed_embedding_bag_kernel.cu hashed_embedding_bag_kernel.cuh)
 
 target_link_libraries(hashed_embedding_bag_kernel  "${TORCH_LIBRARIES}")
 target_link_libraries(hashed_embedding_bag_kernel  ${PYTHON_LIBRARIES})

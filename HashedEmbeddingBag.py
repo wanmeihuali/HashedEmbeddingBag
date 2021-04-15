@@ -34,7 +34,6 @@ class HashedEmbeddingBagFunction(torch.autograd.Function):
             mode_enum = 1
         elif mode == 'max':
             mode_enum = 2
-            raise ValueError("max mode not supported")
 
         hashed_weights_size = hashed_weights.size(0)
         output, offset2bag, bag_size, max_indices, hashed_idx = \
@@ -68,14 +67,11 @@ class HashedEmbeddingBag(nn.Module):
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
         weight_size = int(num_embeddings * embedding_dim * compression)
-        print("Inside HashedEmbeddingBag: ", num_embeddings, embedding_dim, compression, weight_size)
         if _weight is None:
             low = -math.sqrt(1 / self.num_embeddings)
             high = math.sqrt(1 / self.num_embeddings)
             self.hashed_weight = Parameter(torch.rand(weight_size) * (high - low) + low)
             # self.reset_parameters()
-            print("Inside HashedEmbeddingBag (after reset): ", num_embeddings, embedding_dim, compression, weight_size,
-                  self.hashed_weight.shape)
         else:
             # assert len(_weight.shape) == 1 and _weight.shape[0] == weight_size, \
             #    'Shape of weight does not match num_embeddings and embedding_dim'

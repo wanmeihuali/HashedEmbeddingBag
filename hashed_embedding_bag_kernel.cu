@@ -12,6 +12,8 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
+#include <THC/THCAtomics.cuh>
+
 #include <thrust/execution_policy.h>
 #include <thrust/unique.h>
 #include <thrust/iterator/constant_iterator.h>
@@ -119,7 +121,8 @@ __global__ void hashed_embedding_bag_update_output_kernel(
                 if (mode == MODE_MAX) {
                     if (emb == begin || weightValue > weightFeatMax) {
                         weightFeatMax = weightValue;
-                        maxWord = input[emb];
+                        maxWord = hashedWeightIdx;
+                        //maxWord = input[emb];
                     }
                 } else {
                     weightFeatSum += static_cast<scalar_t>(weightValue);
@@ -397,6 +400,64 @@ torch::Tensor hashed_embedding_bag_sum_avg_backward(
     return weight_grad;
 }
 
+template <typename scalar_t>
+__global__ void HashedEmbeddingBag_accGradParametersKernel_max(
+        torch::PackedTensorAccessor32<int64_t, 2, torch::RestrictPtrTraits> max_indices,
+        torch::PackedTensorAccessor32<scalar_t, 2, torch::RestrictPtrTraits> gradOutput,
+        torch::PackedTensorAccessor32<scalar_t, 1, torch::RestrictPtrTraits> gradWeight,
+        int64_t stride,
+        int64_t numBags) {
+
+    int64_t chunksPerBag = (stride + (int64_t) blockDim.x - 1) / (int64_t) blockDim.x;
+    int64_t numChunks = numBags * chunksPerBag;
+    int64_t chunkOffset = blockIdx.x * blockDim.y + threadIdx.y;
+    int64_t chunkStride = gridDim.x * blockDim.y;
+
+    for (int64_t chunk = chunkOffset; chunk < numChunks; chunk += chunkStride) {
+        int64_t featureDim = (chunk % chunksPerBag) * blockDim.x + threadIdx.x;
+        if (featureDim < stride) {
+            int64_t bag = chunk / chunksPerBag;
+
+            int64_t word_idx = max_indices[bag][featureDim];
+            if (word_idx >= 0) {
+                // If bag is empty, we have max_indices[idx] set to -1 in forward.
+                gpuAtomicAdd(&(gradWeight[word_idx]),
+                             gradOutput[bag][featureDim]);
+            }
+        }
+    }
+}
+
+torch::Tensor hashed_embedding_bag_backward_cuda_max(const torch::Tensor &grad,
+                                       const torch::Tensor &max_indices,
+                                       int64_t num_weights) {
+    // See Note [Writing Nondeterministic Operations]
+    // Nondeterministic because of atomicAdd usage
+    torch::globalContext().alertNotDeterministic("embedding_bag_backward_cuda_max");
+
+    auto grad_weight = at::zeros({num_weights}, grad.options());
+
+    int64_t stride = grad.stride(0);
+
+    int64_t numBags = grad.size(0);
+
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+
+    dim3 block = dim3(32, 8);
+    int grid = 1024;
+
+    AT_DISPATCH_ALL_TYPES(grad.scalar_type(), "embedding_bag_backward_cuda_max", [&] () {
+        HashedEmbeddingBag_accGradParametersKernel_max<scalar_t><<<grid, block, 0, stream>>>(
+            max_indices.packed_accessor32<int64_t, 2, torch::RestrictPtrTraits>(),
+            grad.packed_accessor32<scalar_t, 2, torch::RestrictPtrTraits>(),
+            grad_weight.packed_accessor32<scalar_t, 1, torch::RestrictPtrTraits>(),
+            stride,
+            numBags);
+    });
+
+    return grad_weight;
+}
+
 torch::Tensor hashed_embedding_bag_cuda_backward(
         const torch::Tensor &grad_,
         const torch::Tensor &indices,
@@ -425,7 +486,10 @@ torch::Tensor hashed_embedding_bag_cuda_backward(
                     mode == MODE_MEAN,
                     embedding_dim);
         case MODE_MAX:
-            //return hashed_embedding_bag_cuda_max()
+            return hashed_embedding_bag_backward_cuda_max(
+                    grad_,
+                    max_indices_,
+                    num_weights);
         default:
             return torch::Tensor();
     }
