@@ -47,7 +47,7 @@ For HashedEmbeddingBag:
 |num_embeddings (int) | size of the dictionary of embeddings |
 |embedding_dim (int) | the size of each embedding vector |
 |compression(float) | the ratio between the size of embedding for HashedEmbeddingBag and the size of embedding for Pytorch's EmbeddingBag|
-|mode(string) | only the sum mode is supported now |
+|mode(string) | sum/mean/max mode are all supported |
 |_weight(Tensor) | A one dimension Tensor used as the hashing buffer, if _weight is provided, the compression parameter will be ignored |
 
 For forwarding:
