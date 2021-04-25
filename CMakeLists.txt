@@ -31,6 +31,15 @@ target_link_libraries(HashedEmbeddingBag_test_cpp ${GTEST_LIBRARIES})
 target_link_libraries(HashedEmbeddingBag_test_cpp hashed_embedding_bag_kernel)
 set_property(TARGET HashedEmbeddingBag_test_cpp   PROPERTY CXX_STANDARD 17)
 
+include_directories(".")
+cuda_add_executable(HashedEmbeddingBag_benchmark benchmark/HashedEmbeddingBag_benchmark.cpp)
+
+target_link_libraries(HashedEmbeddingBag_benchmark  "${TORCH_LIBRARIES}")
+target_link_libraries(HashedEmbeddingBag_benchmark  ${PYTHON_LIBRARIES})
+target_link_libraries(HashedEmbeddingBag_benchmark hashed_embedding_bag_kernel)
+set_property(TARGET HashedEmbeddingBag_benchmark   PROPERTY CXX_STANDARD 17)
+
+
 # The following code block is suggested to be used on Windows.
 # According to https://github.com/pytorch/pytorch/issues/25457,
 # the DLLs need to be copied to avoid memory errors.
@@ -41,4 +50,9 @@ if (MSVC)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${TORCH_DLLS}
             $<TARGET_FILE_DIR:HashedEmbeddingBag_test_cpp>)
+    add_custom_command(TARGET HashedEmbeddingBag_benchmark
+            POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${TORCH_DLLS}
+            $<TARGET_FILE_DIR:HashedEmbeddingBag_benchmark>)
 endif (MSVC)
