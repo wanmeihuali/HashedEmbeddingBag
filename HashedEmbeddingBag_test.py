@@ -96,6 +96,73 @@ def test_hashedEmbeddingBag():
 
     assert ((weight_grad - expected_weight_grad).sum().item() < 0.1)
 
+def test_hashedEmbeddingBag_single():
+    bag_num = 180
+
+    num_categories = 100
+    num_feature = 200
+
+    hashed_weight_size = 200
+
+    # generate random weight and input for testing
+    hashed_weights = torch.rand(hashed_weight_size, requires_grad=True)
+
+    embedding = HashedEmbeddingBag.HashedEmbeddingBag(
+        num_categories, num_feature, compression=0.1, _weight=hashed_weights)
+    embedding = embedding.cuda()
+
+    indices_num = bag_num
+
+    indices = torch.randint(low=0, high=num_categories - 1, size=(indices_num, 1))
+
+    # move all inputs to GPU
+    device = torch.cuda.current_device()
+    indices = indices.to(device)
+
+    output = embedding.forward(indices)
+
+    # give a 'weight' to different locations in output, so that the element in output_grad is different from each other.
+    x = torch.rand_like(output).cuda()
+    loss = (output * x).sum()
+    loss.backward()
+
+    # move weight, inputs, and outputs to CPU
+    device = torch.device("cpu")
+    hashed_weights = hashed_weights.to(device)
+    indices = indices.to(device)
+    output = output.to(device)
+
+    # generate expected output by python
+    expected_hashed_index = torch.zeros((indices_num, num_feature), dtype=torch.long)
+    expected_output = torch.zeros(bag_num, num_feature)
+    for i in range(indices.size(0)):
+        for j in range(num_feature):
+            weight_idx = hashed_embedding_bag.hash(indices[i].item(), j) % hashed_weights.size(0)
+            expected_hashed_index[i, j] = weight_idx
+            expected_output[i, j] += hashed_weights[weight_idx]
+
+    # assert forward results are correct
+    assert (expected_output.equal(output))
+
+    # the gradient of output, which is the input for backward.
+    output_grad = x.cpu()
+
+    expected_weight_grad = torch.zeros_like(hashed_weights)
+
+    # generate gradient for weight in python
+    for i in range(indices.size(0)):
+        for j in range(num_feature):
+            weight_idx = hashed_embedding_bag.hash(indices[i].item(), j) % hashed_weights.size(0)
+            expected_weight_grad[weight_idx] += output_grad[i, j]
+
+    # move all tensors to GPU
+    device = torch.cuda.current_device()
+    hashed_weights = hashed_weights.to(device)
+    indices = indices.to(device)
+
+    assert ((embedding.hashed_weight.grad.data.cpu() - expected_weight_grad).sum().item() < 0.1)
+
+
 def test_HashedEmbeddingBagAPI_mean():
     bag_num = 18
 
@@ -107,7 +174,8 @@ def test_HashedEmbeddingBagAPI_mean():
     # generate random weight and input for testing
     hashed_weights = torch.rand(hashed_weight_size)
 
-    embedding = HashedEmbeddingBag.HashedEmbeddingBag(num_categories, num_feature, compression=0.1, mode="mean")
+    embedding = HashedEmbeddingBag.HashedEmbeddingBag(
+        num_categories, num_feature, compression=0.1, mode="mean", _weight=hashed_weights)
     embedding = embedding.cuda()
 
     bag_size = torch.randint(low=0, high=3, size=(bag_num,))
@@ -182,5 +250,31 @@ def test_HashedEmbeddingBagAPI_sum():
     offsets = offsets.to(device)
 
     x = embedding.forward(indices, offsets)
+    loss = x.sum()
+    loss.backward()
+
+def test_HashedEmbeddingBagAPI_single():
+    bag_num = 200
+
+    num_categories = 10
+    num_feature = 5
+
+    hashed_weight_size = 200
+
+    # generate random weight and input for testing
+    hashed_weights = torch.rand(hashed_weight_size)
+
+    embedding = HashedEmbeddingBag.HashedEmbeddingBag(num_categories, num_feature, compression=0.1, mode="sum")
+    embedding = embedding.cuda()
+
+    indices_num = bag_num
+
+    indices = torch.randint(low=0, high=num_categories - 1, size=(indices_num, 1))
+
+    # move all inputs to GPU
+    device = torch.cuda.current_device()
+    indices = indices.to(device)
+
+    x = embedding.forward(indices)
     loss = x.sum()
     loss.backward()

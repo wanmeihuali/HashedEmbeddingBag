@@ -10,6 +10,7 @@ from torch.nn.parameter import Parameter
 class HashedEmbeddingBagFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, hashed_weights, indices, offsets, mode, embedding_dim):
+        assert mode == "sum" or mode == "mean" or mode == "max"
         if indices.dim() == 2:
             if offsets is not None:
                 raise ValueError("if indices is 2D, then offsets has to be None"
@@ -18,6 +19,10 @@ class HashedEmbeddingBagFunction(torch.autograd.Function):
                                  "offsets of type {}".format(type(offsets)))
             offsets = torch.arange(0, indices.numel(), indices.size(1),
                                    dtype=torch.long, device=indices.device)
+
+            # if indices is a num_bags x 1 tensor, then each bag only has one value, the backward can be easier.
+            if indices.size(1) == 1:
+                mode = 'single'
             indices = indices.reshape(-1)
         elif indices.dim() == 1:
             if offsets is None:
@@ -34,6 +39,8 @@ class HashedEmbeddingBagFunction(torch.autograd.Function):
             mode_enum = 1
         elif mode == 'max':
             mode_enum = 2
+        elif mode == 'single':
+            mode_enum = 3
 
         hashed_weights_size = hashed_weights.size(0)
         output, offset2bag, bag_size, max_indices, hashed_idx = \

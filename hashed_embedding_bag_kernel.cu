@@ -27,6 +27,7 @@
 constexpr int MODE_SUM = 0;
 constexpr int MODE_MEAN = 1;
 constexpr int MODE_MAX = 2;
+constexpr int MODE_SINGLE = 3;
 
 constexpr int NWEIGHT_PER_THREAD = 128;
 
@@ -142,7 +143,7 @@ __global__ void hashed_embedding_bag_update_output_kernel(
                 }
             }
 
-            if (mode == MODE_MEAN || mode == MODE_SUM) {
+            if (mode == MODE_MEAN || mode == MODE_SUM || mode == MODE_SINGLE) {
                 output[bag][featureDim] = static_cast<scalar_t>(weightFeatSum);
             } else if (mode == MODE_MAX) {
                 if (end == begin) {
@@ -458,6 +459,18 @@ torch::Tensor hashed_embedding_bag_backward_cuda_max(const torch::Tensor &grad,
     return grad_weight;
 }
 
+torch::Tensor hashed_embedding_bag_backward_cuda_single(const torch::Tensor &grad,
+                                                     const torch::Tensor &hashed_index,
+                                                     int64_t num_weights) {
+
+    auto grad_weight = at::zeros({num_weights}, grad.options());
+
+    grad_weight.scatter_add_(0, hashed_index.flatten(), grad.flatten());
+
+    return grad_weight;
+}
+
+
 torch::Tensor hashed_embedding_bag_cuda_backward(
         const torch::Tensor &grad_,
         const torch::Tensor &indices,
@@ -489,6 +502,11 @@ torch::Tensor hashed_embedding_bag_cuda_backward(
             return hashed_embedding_bag_backward_cuda_max(
                     grad_,
                     max_indices_,
+                    num_weights);
+        case MODE_SINGLE:
+            return hashed_embedding_bag_backward_cuda_single(
+                    grad_,
+                    hashed_index,
                     num_weights);
         default:
             return torch::Tensor();
