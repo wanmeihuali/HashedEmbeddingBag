@@ -6,6 +6,7 @@
 #include <chrono>
 
 const int running_num = 1000;
+const bool run_original_code = false;
 const std::vector<std::vector<int>> input_sizes {
         {0, 2048, 20000, 16, 10000},
         {1, 2048, 20000, 16, 10000},
@@ -153,25 +154,28 @@ void runBenchmark()
                num_feature,
                hashed_weight_size);
         printf(">> avg running time %f microseconds\n", avg_running_time);
+        if (run_original_code)
+        {
+            start = std::chrono::high_resolution_clock::now();
+            for (int idx = 0; idx < running_num; ++idx) {
+                runEmbeddingForwardAndBackward(
+                        mode,
+                        num_feature,
+                        indices,
+                        offsets,
+                        weights,
+                        bag_size,
+                        output_grad);
+            }
 
-        start = std::chrono::high_resolution_clock::now();
-        for (int idx = 0; idx < running_num; ++idx) {
-            runEmbeddingForwardAndBackward(
-                    mode,
-                    num_feature,
-                    indices,
-                    offsets,
-                    weights,
-                    bag_size,
-                    output_grad);
+            end = std::chrono::high_resolution_clock::now();
+            duration = end - start;
+            duration_microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+            avg_running_time = static_cast<double>(duration_microseconds) / running_num;
+
+            printf(">> original embedding bag avg running time %f microseconds\n", avg_running_time);
         }
 
-        end = std::chrono::high_resolution_clock::now();
-        duration = end - start;
-        duration_microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
-        avg_running_time = static_cast<double>(duration_microseconds) / running_num;
-
-        printf(">> original embedding bag avg running time %f microseconds\n", avg_running_time);
     }
 
 
