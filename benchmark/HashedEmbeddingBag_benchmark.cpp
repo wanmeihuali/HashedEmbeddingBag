@@ -5,12 +5,12 @@
 #include <cstdio>
 #include <chrono>
 
-const int running_num = 10000;
+const int running_num = 1000;
 const std::vector<std::vector<int>> input_sizes {
-        {0, 512, 10000, 16, 1600},
-        {1, 512, 10000, 16, 1600},
-        {2, 512, 10000, 16, 1600},
-        {3, 512, 10000, 16, 1600}
+        {0, 2048, 20000, 16, 10000},
+        {1, 2048, 20000, 16, 10000},
+        {2, 2048, 20000, 16, 10000},
+        {3, 2048, 20000, 16, 10000}
 };
 
 std::string int2Mode(int mode)
@@ -29,13 +29,14 @@ std::string int2Mode(int mode)
     }
 }
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> generateData(
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> generateData(
         int mode, int bag_num, int num_categories, int num_feature, int hashed_weight_size)
 {
 
     auto long_cuda_option = torch::TensorOptions().dtype(torch::kLong).device(torch::kCUDA);
 
     auto hashed_weights = torch::rand({hashed_weight_size}, torch::kCUDA);
+    auto weights = torch::rand({num_categories, num_feature}, torch::kCUDA);
 
     auto bag_size = torch::randint(0, 7, {bag_num}, long_cuda_option);
     if (mode == 3) {
@@ -49,7 +50,46 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 
 
     auto output_grad = torch::rand({bag_num, num_feature}, torch::kCUDA);
-    return {indices, offsets, hashed_weights, bag_size, output_grad};
+    return {indices, offsets, hashed_weights, weights, bag_size, output_grad};
+}
+
+void runEmbeddingForwardAndBackward(
+        int mode,
+        int num_feature,
+        torch::Tensor& indices,
+        torch::Tensor& offsets,
+        torch::Tensor& weight,
+        torch::Tensor& bag_size,
+        torch::Tensor& output_grad)
+{
+    if (mode == 3)
+    {
+        auto output = torch::embedding(weight, indices);
+        torch::embedding_backward(output_grad, indices, weight.size(0), 0, false, false);
+    }
+    else
+    {
+        // run forward function on GPU
+        auto [output, offset2bag, bag_size_generated, max_indices] =
+        torch::embedding_bag(weight, indices, offsets, false, mode);
+
+        torch::_embedding_bag_backward(
+                output_grad,
+                indices,
+                offsets,
+                offset2bag,
+                bag_size_generated,
+                max_indices,
+                weight.size(0),
+                false,
+                mode,
+                false,
+                // I don't find a way to create an undefined tensor, the grad of a tensor is undefined by default.
+                indices.grad());
+
+    }
+
+    cudaDeviceSynchronize();
 }
 
 void runForwardAndBackward(
@@ -64,15 +104,18 @@ void runForwardAndBackward(
 
     // run forward function on GPU
     auto [output, offset2bag, bag_size_generated, max_indices, hashed_idx] =
-    hashed_embedding_bag_forward(hashed_weights, indices, offsets, mode, num_feature);
+        hashed_embedding_bag_forward(hashed_weights, indices, offsets, mode, num_feature);
 
 
     auto weight_grad = hashed_embedding_bag_backward(
-            output_grad, indices, offsets, offset2bag, bag_size, max_indices, hashed_idx, hashed_weights.size(0), false,
+            output_grad, indices, offsets, offset2bag, bag_size_generated, max_indices, hashed_idx, hashed_weights.size(0), false,
             mode, num_feature);
 
     cudaDeviceSynchronize();
 }
+
+
+
 
 void runBenchmark()
 {
@@ -83,7 +126,7 @@ void runBenchmark()
         int num_categories = config[2];
         int num_feature = config[3];
         int hashed_weight_size = config[4];
-        auto [indices, offsets, hashed_weights, bag_size, output_grad] =
+        auto [indices, offsets, hashed_weights, weights, bag_size, output_grad] =
             generateData(mode, bag_num, num_categories, num_feature, hashed_weight_size);
 
         auto start = std::chrono::high_resolution_clock::now();
@@ -109,7 +152,26 @@ void runBenchmark()
                num_categories,
                num_feature,
                hashed_weight_size);
-        printf(">> avg running time %f\n", avg_running_time);
+        printf(">> avg running time %f microseconds\n", avg_running_time);
+
+        start = std::chrono::high_resolution_clock::now();
+        for (int idx = 0; idx < running_num; ++idx) {
+            runEmbeddingForwardAndBackward(
+                    mode,
+                    num_feature,
+                    indices,
+                    offsets,
+                    weights,
+                    bag_size,
+                    output_grad);
+        }
+
+        end = std::chrono::high_resolution_clock::now();
+        duration = end - start;
+        duration_microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+        avg_running_time = static_cast<double>(duration_microseconds) / running_num;
+
+        printf(">> original embedding bag avg running time %f microseconds\n", avg_running_time);
     }
 
 
