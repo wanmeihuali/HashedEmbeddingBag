@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any
 
 import hashed_embedding_bag
 import math
@@ -103,3 +103,18 @@ class HashedEmbeddingBag(nn.Module):
             self.mode,
             self.embedding_dim
         )
+
+
+class HashedEmbedding(nn.Module):
+    def __init__(self,
+                 num_embeddings: int,
+                 embedding_dim: int,
+                 compression: float = 1. / 64.,
+                 _weight: Optional[torch.Tensor] = None):
+        super(HashedEmbedding, self).__init__()
+        self.hashed_embedding_bag = HashedEmbeddingBag(num_embeddings, embedding_dim, compression, "sum", _weight)
+
+    def forward(self, indices: torch.Tensor):
+        return self.hashed_embedding_bag.forward(
+            indices.unsqueeze(-1))
+

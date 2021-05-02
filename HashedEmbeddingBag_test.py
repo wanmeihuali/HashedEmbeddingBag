@@ -278,3 +278,29 @@ def test_HashedEmbeddingBagAPI_single():
     x = embedding.forward(indices)
     loss = x.sum()
     loss.backward()
+
+def test_HashedEmbeddingBagAPI_embeddding():
+    bag_num = 200
+
+    num_categories = 10
+    num_feature = 5
+
+    hashed_weight_size = 200
+
+    # generate random weight and input for testing
+    hashed_weights = torch.rand(hashed_weight_size)
+
+    embedding = HashedEmbeddingBag.HashedEmbedding(num_categories, num_feature, compression=0.1)
+    embedding = embedding.cuda()
+
+    indices_num = bag_num
+
+    indices = torch.randint(low=0, high=num_categories - 1, size=(indices_num, ))
+
+    # move all inputs to GPU
+    device = torch.cuda.current_device()
+    indices = indices.to(device)
+
+    x = embedding.forward(indices)
+    loss = x.sum()
+    loss.backward()
