@@ -115,6 +115,8 @@ class HashedEmbedding(nn.Module):
         self.hashed_embedding_bag = HashedEmbeddingBag(num_embeddings, embedding_dim, compression, "sum", _weight)
 
     def forward(self, indices: torch.Tensor):
-        return self.hashed_embedding_bag.forward(
-            indices.unsqueeze(-1))
+        if indices.dim() == 1:
+            return self.hashed_embedding_bag.forward(indices.unsqueeze(-1))
+        else:
+            return self.hashed_embedding_bag.forward(indices)
 
