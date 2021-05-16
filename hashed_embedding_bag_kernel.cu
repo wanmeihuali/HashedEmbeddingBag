@@ -157,6 +157,92 @@ __global__ void hashed_embedding_bag_update_output_kernel(
     }
 }
 
+
+template<typename scalar_t>
+__global__ void hashed_embedding_bag_update_output_raw_kernel(
+        const int64_t* input,
+        const int64_t* offsets,
+        const scalar_t* hashed_weights,
+        scalar_t* output,
+        int64_t* offset2bag,
+        int64_t numIndices,
+        int64_t numBags,
+        int64_t embedding_dim,
+        int64_t hashedWeightSize,
+        int64_t weight_stride,
+        int mode,
+        int64_t* hashed_index,
+        int64_t* bag_size,
+        int64_t* max_indices) {
+    // the strategy here is that each bag x feature is handled by a single thread
+
+    int64_t chunksPerBag = (embedding_dim + (int64_t) blockDim.x - 1) / (int64_t) blockDim.x;
+    int64_t numChunks = numBags * chunksPerBag;
+    int64_t chunkOffset = blockIdx.x * blockDim.y + threadIdx.y;
+    int64_t chunkStride = gridDim.x * blockDim.y;
+
+    for (int64_t chunk = chunkOffset; chunk < numChunks; chunk += chunkStride) {
+        int64_t featureDim = (chunk % chunksPerBag) * blockDim.x + threadIdx.x;
+        if (featureDim < embedding_dim) {
+            int64_t bag = chunk / chunksPerBag;
+            int64_t begin = bag == 0 ? 0 : offsets[bag]; // forces first offset to be 0 instead of asserting on it
+            int64_t end = (bag < numBags - 1) ? (offsets[bag + 1]) : numIndices;
+            CUDA_KERNEL_ASSERT(end >= begin);
+
+            scalar_t weightFeatSum = 0;
+            scalar_t weightFeatMax;
+
+            int64_t bag_size_ = 0;
+            int64_t maxWord = -1;
+            // from start of bag to end of bag.
+            for (int64_t emb = begin; emb < end; emb++) {
+                const int64_t weightRow = input[emb];
+                //const int64_t hashedWeightIdx = hash_func(weightRow, featureDim) % hashedWeightSize;
+                //const int64_t hashedWeightIdx = (weightRow * 9824516537u + featureDim * 57857966300227u + 104729) % 117130198221199u % hashedWeightSize;
+                const int64_t hashedWeightIdx = (weightRow * 9824516537 + featureDim * 57857966300227 + 104729) & (hashedWeightSize - 1);
+                //const int64_t hashedWeightIdx = 0;
+                hashed_index[emb * embedding_dim + featureDim] = hashedWeightIdx;
+                scalar_t weightValue = hashed_weights[hashedWeightIdx * weight_stride];
+
+                if (mode == MODE_MAX) {
+                    if (emb == begin || weightValue > weightFeatMax) {
+                        weightFeatMax = weightValue;
+                        maxWord = hashedWeightIdx;
+                        //maxWord = input[emb];
+                    }
+                } else {
+                    weightFeatSum += static_cast<scalar_t>(weightValue);
+                }
+
+                bag_size_++;
+                if (featureDim == 0) {
+                    offset2bag[emb] = bag;
+                }
+            }
+            if (mode == MODE_MEAN) {
+                if (end == begin) {
+                    bag_size[bag] = 0;
+                } else {
+                    weightFeatSum = weightFeatSum / static_cast<scalar_t>(bag_size_);
+                    bag_size[bag] = bag_size_;
+                }
+            }
+
+            if (mode == MODE_MEAN || mode == MODE_SUM || mode == MODE_SINGLE) {
+                output[bag * embedding_dim + featureDim] = static_cast<scalar_t>(weightFeatSum);
+            } else if (mode == MODE_MAX) {
+                if (end == begin) {
+                    // If bag is empty, set output to 0.
+                    weightFeatMax = 0;
+                }
+                max_indices[bag * embedding_dim + featureDim] = maxWord;
+                output[bag * embedding_dim + featureDim] = weightFeatMax;
+            }
+        }
+    }
+}
+
+
 template<typename scalar_t>
 __global__ void compute_grad_weight_bags(
         torch::PackedTensorAccessor32<int64_t, 1, torch::RestrictPtrTraits> orig_hash_idx_idx,
@@ -248,6 +334,7 @@ hashed_embedding_bag_cuda_forward(
 #endif
     int grid = 1024;
 
+    /*
     AT_DISPATCH_FLOATING_TYPES(hashed_weights.type(), "hashed_embedding_bag_cuda", ([&] {
         hashed_embedding_bag_update_output_kernel<scalar_t><<<grid, block, 0, stream>>>(
                 indices.packed_accessor32<int64_t, 1, torch::RestrictPtrTraits>(),
@@ -263,6 +350,24 @@ hashed_embedding_bag_cuda_forward(
                 hashed_index.packed_accessor32<int64_t, 2, torch::RestrictPtrTraits>(),
                 bag_size.packed_accessor32<int64_t, 1, torch::RestrictPtrTraits>(),
                 max_indices.packed_accessor32<int64_t, 2, torch::RestrictPtrTraits>());
+    }));
+     */
+    AT_DISPATCH_FLOATING_TYPES(hashed_weights.type(), "hashed_embedding_bag_cuda", ([&] {
+        hashed_embedding_bag_update_output_raw_kernel<scalar_t><<<grid, block, 0, stream>>>(
+                indices.data_ptr<int64_t>(),
+                offsets.data_ptr<int64_t>(),
+                hashed_weights.data_ptr<scalar_t>(),
+                output.data_ptr<scalar_t>(),
+                offset2bag.data_ptr<int64_t>(),
+                numIndices,
+                numBags,
+                embedding_dim,
+                hashedWeightSize,
+                hashed_weights.stride(0),
+                mode,
+                hashed_index.data_ptr<int64_t>(),
+                bag_size.data_ptr<int64_t>(),
+                max_indices.data_ptr<int64_t>());
     }));
 
     return std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>(

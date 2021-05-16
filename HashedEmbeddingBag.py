@@ -74,6 +74,8 @@ class HashedEmbeddingBag(nn.Module):
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
         weight_size = int(num_embeddings * embedding_dim * compression)
+        weight_size = int(pow(2, int(math.log(weight_size, 2))))
+
         if _weight is None:
             low = -math.sqrt(1 / self.num_embeddings)
             high = math.sqrt(1 / self.num_embeddings)
@@ -84,6 +86,7 @@ class HashedEmbeddingBag(nn.Module):
             #    'Shape of weight does not match num_embeddings and embedding_dim'
             self.hashed_weight = Parameter(_weight)
             self.weight_size = self.hashed_weight.numel()
+            assert weight_size & (weight_size - 1) == 0
         self.mode = mode
 
     """
