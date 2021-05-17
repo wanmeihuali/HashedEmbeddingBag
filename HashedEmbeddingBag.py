@@ -74,7 +74,7 @@ class HashedEmbeddingBag(nn.Module):
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
         weight_size = int(num_embeddings * embedding_dim * compression)
-        weight_size = int(pow(2, int(math.log(weight_size, 2))))
+        # weight_size = int(pow(2, int(math.log(weight_size, 2))))
 
         if _weight is None:
             low = -math.sqrt(1 / self.num_embeddings)

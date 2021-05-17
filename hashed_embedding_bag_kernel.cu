@@ -197,9 +197,9 @@ __global__ void hashed_embedding_bag_update_output_raw_kernel(
             // from start of bag to end of bag.
             for (int64_t emb = begin; emb < end; emb++) {
                 const int64_t weightRow = input[emb];
-                //const int64_t hashedWeightIdx = hash_func(weightRow, featureDim) % hashedWeightSize;
+                const int64_t hashedWeightIdx = hash_func(weightRow, featureDim) % hashedWeightSize;
                 //const int64_t hashedWeightIdx = (weightRow * 9824516537u + featureDim * 57857966300227u + 104729) % 117130198221199u % hashedWeightSize;
-                const int64_t hashedWeightIdx = (weightRow * 9824516537 + featureDim * 57857966300227 + 104729) & (hashedWeightSize - 1);
+                // const int64_t hashedWeightIdx = (weightRow * 9824516537 + featureDim * 57857966300227 + 104729) & (hashedWeightSize - 1);
                 //const int64_t hashedWeightIdx = 0;
                 hashed_index[emb * embedding_dim + featureDim] = hashedWeightIdx;
                 scalar_t weightValue = hashed_weights[hashedWeightIdx * weight_stride];

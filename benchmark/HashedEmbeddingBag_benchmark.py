@@ -1,9 +1,10 @@
 import torch
 import HashedEmbeddingBag
 import time
+import statistics
 
 def benchmark():
-    bag_num = 2048
+    bag_num = 4096
 
     num_categories = 300000
     num_feature = 16
@@ -11,6 +12,7 @@ def benchmark():
     compression = 0.001
     mode = "mean"
     iterations = 10000
+    experiments = 10
 
 
     embedding = HashedEmbeddingBag.HashedEmbeddingBag(
@@ -32,20 +34,30 @@ def benchmark():
     indices = indices.to(device)
     offsets = offsets.to(device)
 
+    print(f"Settings: bag_num = {bag_num}, dim size = {num_feature}, mode = {mode}")
 
-    start_time = time.time()
-    for _ in range(iterations):
-        _ = embedding.forward(indices, offsets)
-        torch.cuda.synchronize()
-    end_time = time.time()
-    print(f"Hashed Embedding average running time = {(end_time - start_time) * 1000000 / iterations}us, bag_num = {bag_num}, dim size = {num_feature}, compression = {compression}, mode = {mode}")
+    durations = []
+    for exp_i in range(experiments):
+        start_time = time.time()
+        for _ in range(iterations):
+            _ = embedding.forward(indices, offsets)
+            torch.cuda.synchronize()
+        end_time = time.time()
+        duration = end_time - start_time
+        durations.append(duration)
+    print(f"Hashed Embedding average running time = {sum(durations) * 1000000 / iterations / experiments}us, stdev time = {statistics.stdev(durations)}, compression = {compression}")
 
-    start_time = time.time()
-    for _ in range(iterations):
-        _ = original_embedding.forward(indices, offsets)
-        torch.cuda.synchronize()
-    end_time = time.time()
-    print(f"Original Embedding average running time = {(end_time - start_time) * 1000000 / iterations}us, bag_num = {bag_num}, dim size = {num_feature}, mode = {mode}")
+
+    durations = []
+    for exp_i in range(experiments):
+        start_time = time.time()
+        for _ in range(iterations):
+            _ = original_embedding.forward(indices, offsets)
+            torch.cuda.synchronize()
+        end_time = time.time()
+        duration = end_time - start_time
+        durations.append(duration)
+    print(f"Original Embedding average running time = {sum(durations) * 1000000 / iterations / experiments}us, stdev time = {statistics.stdev(durations)}")
 
 
 
